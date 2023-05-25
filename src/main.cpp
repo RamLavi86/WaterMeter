@@ -111,7 +111,11 @@ void setup(){
   Serial.begin(9600);
   EEPROM.begin(512);
   Serial.println();
-  
+
+  // For DEBUG ONLY !!!!
+  //EEPROM.writeUInt(0,100);
+  //EEPROM.commit();
+  // END for DEBUG ONLY!!!
   waterMeter.count = EEPROM.readUInt(0);
 
   pinMode(ONBOARD_LED,OUTPUT);
