@@ -137,6 +137,7 @@ void loop(){
 //-------------------------------------------------------------------------------------
   // Connect WiFi
   if (WiFi.status() != WL_CONNECTED){
+    Wifi.disconnect();
     digitalWrite(ONBOARD_LED, LOW);
     connectToWifi();
   }
@@ -173,6 +174,7 @@ void loop(){
 
       // if wifi is off reset device
       if (WiFi.status() != WL_CONNECTED){
+        Wifi.disconnect();
         ESP.restart();
       }
       
@@ -384,4 +386,12 @@ void insertToCounterList(uint32_t *tCounterList, uint32_t tCounter){
 void IRAM_ATTR minuteISR(){
   insertToCounterList(counterList, waterMeter.count);
   minuteIsrFlag = true;
+
+
+  if ((minutesCounterDailyCount % 60 == 0) &&(WiFi.status() != WL_CONNECTED)){
+      EEPROM.writeUInt(0,waterMeter.count);
+      EEPROM.commit();
+      Wifi.disconnect();
+      ESP.restart();
+  }
 }
