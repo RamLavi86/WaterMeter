@@ -170,6 +170,12 @@ void loop(){
       EEPROM.commit();
       Serial.printf("write water meter count to EEPROM = %u",waterMeter.count);
       Serial.println();
+
+      // if wifi is off reset device
+      if (WiFi.status() != WL_CONNECTED){
+        ESP.restart();
+      }
+      
     }
     if (minutesCounterDailyCount % 60 == 2){
       Serial.printf("read water meter count from EEPROM = %u",EEPROM.readUInt(0));
