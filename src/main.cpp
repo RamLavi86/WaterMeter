@@ -58,6 +58,10 @@ digInput waterMeter = {WATER_METER_INPUT, 0, false};
 
 uint32_t counterList[MIN_IN_DAY];
 
+uint32_t resetCounter;
+
+uint32_t hourCounter;
+
 int minutesCounterDailyCount = 0;
 
 //variables to keep track of the timing of recent interrupts
@@ -94,6 +98,9 @@ void writeUint32ToFlash(int startAddress, uint32_t num);
 /* Read Uint32_t from flash */
 void readFlashToUint32(int startAddress, uint32_t *num);
 
+/* write the hourly meter read */
+void writeAllToEEPROM();
+
 /* Variable to store the HTTP request */
 String header;
 /* Current time */
@@ -117,7 +124,7 @@ void setup(){
   //EEPROM.commit();
   // END for DEBUG ONLY!!!
   waterMeter.count = EEPROM.readUInt(0);
-
+  zerosCounterList();
   pinMode(ONBOARD_LED,OUTPUT);
 
   pinMode(waterMeter.PIN, INPUT_PULLUP);
@@ -127,6 +134,22 @@ void setup(){
   timerAttachInterrupt(minuteTimer, &minuteISR, true);
   timerAlarmWrite(minuteTimer, MINUTE_IN_MICRO, true);
   timerAlarmEnable(minuteTimer);
+  
+
+  //////////
+  /*
+  for (int i = 0; i < 24 ; i++){
+    EEPROM.writeUInt(i * 4,waterMeter.count); // EEPROM index 0,4,8,...,92 and counter List index 0,60,120,...,1380
+  }
+  
+  zerosCounterList();
+  
+  EEPROM.writeUInt(100,0);
+  EEPROM.writeUInt(104,0);
+
+  EEPROM.commit();
+  */
+  /////////
 
 }
 
@@ -151,12 +174,14 @@ void loop(){
   // One minute Interrupt Service Routine
   
   if (minuteIsrFlag){ // performs every minute
+
+    insertToCounterList(counterList, waterMeter.count);
+
     for (int i = 0 ; i < 10 ; i++){
       //Serial.printf("CounterList:");
       //Serial.printf("counterList[%d] = %u", i , counterList[i]);
       //Serial.println();      
     }
-    minutesCounterDailyCount++;
     if (minutesCounterDailyCount >= MIN_IN_DAY){
       sendEmail(MIN_IN_DAY, (counterList[0] - counterList[MIN_IN_DAY-1]));
       minutesCounterDailyCount = 0;      
@@ -167,17 +192,9 @@ void loop(){
 
     // Write to EEPROM every 60 minutes
     if (minutesCounterDailyCount % 60 == 0){
-      EEPROM.writeUInt(0,waterMeter.count);
-      EEPROM.commit();
+      writeAllToEEPROM();
       Serial.printf("write water meter count to EEPROM = %u",waterMeter.count);
-      Serial.println();
-
-      // if wifi is off reset device
-      if (WiFi.status() != WL_CONNECTED){
-        WiFi.disconnect();
-        ESP.restart();
-      }
-      
+      Serial.println();      
     }
     if (minutesCounterDailyCount % 60 == 2){
       Serial.printf("read water meter count from EEPROM = %u",EEPROM.readUInt(0));
@@ -202,6 +219,9 @@ void loop(){
           // that's the end of the client HTTP request, so send a response:
           if (currentLine.length() == 0) {
             String meterCountString = (String)waterMeter.count;
+            String hourCounterString = (String)hourCounter;
+            String resetCounterString = (String)resetCounter;
+            
             // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
             // and a content-type so the client knows what's coming, then a blank line:
             client.println("HTTP/1.1 200 OK");
@@ -221,6 +241,16 @@ void loop(){
             // Web Page Heading
             client.println("<body><h1>Water Meter</h1>");
             client.println("<p>Meter count: " + meterCountString + "</p>");
+            client.println("<p>hour counter: " + hourCounterString + "</p>");
+            client.println("<p>reset counter: " + resetCounterString + "</p>");
+            client.println("<p>meter per hour counter: </p>");
+            for (int i = 0; i < 24 ; i++){
+              client.println("<p>hour " + (String)i + " read: " + (String)counterList[i * 60] + "</p>");
+            }
+            client.println("<p>------------------------------------</p>");
+            for (int i = 0; i < MIN_IN_DAY ; i++){
+              client.println("<p>hour " + (String)i + " read: " + (String)counterList[i] + "</p>");
+            }
             client.println("</body></html>");
             // The HTTP response ends with another blank line
             client.println();
@@ -371,8 +401,11 @@ void IRAM_ATTR wm_isr() {
 
 void zerosCounterList(){
   for (int i = 0 ; i < MIN_IN_DAY ; i++){
-    counterList[i] = waterMeter.count;
+    int eepromIndex = (int)(i / 60) * 4; // 0,4,8,...,92
+    counterList[i] = EEPROM.readUInt(eepromIndex);
   }
+  resetCounter = EEPROM.readUInt(100);
+  hourCounter = EEPROM.readUInt(104);
 }
 
 /* insert this minute read */
@@ -384,14 +417,28 @@ void insertToCounterList(uint32_t *tCounterList, uint32_t tCounter){
 }
 
 void IRAM_ATTR minuteISR(){
-  insertToCounterList(counterList, waterMeter.count);
+  minutesCounterDailyCount++;
   minuteIsrFlag = true;
 
-
-  if ((minutesCounterDailyCount % 60 == 0) &&(WiFi.status() != WL_CONNECTED)){
-      EEPROM.writeUInt(0,waterMeter.count);
-      EEPROM.commit();
+  if (minutesCounterDailyCount % 60 == 0){
+    hourCounter++;
+    writeAllToEEPROM();
+    if (WiFi.status() != WL_CONNECTED){
+      resetCounter++;
       WiFi.disconnect();
       ESP.restart();
+    }
   }
+
+}
+
+void writeAllToEEPROM(){
+  // write the hourly reading to EEPROM
+  for (int i = 0; i < 24 ; i++){
+    EEPROM.writeUInt(i * 4,counterList[i * 60]); // EEPROM index 0,4,8,...,92 and counter List index 0,60,120,...,1380
+  }
+  EEPROM.writeUInt(0,waterMeter.count);
+  EEPROM.writeUInt(100,resetCounter);
+  EEPROM.writeUInt(104,hourCounter);
+  EEPROM.commit();
 }
