@@ -306,11 +306,17 @@ void smtpCallback(SMTP_Status status){
 }
 
 void connectToWifi(){
+  int t_i = 0;
   Serial.print("Connecting to AP");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED){
+  while ((WiFi.status() != WL_CONNECTED) && (t_i <= 100)){
     Serial.print(".");
     delay(200);
+    t_i++;
+  }
+  if (t_i == 100) // wifi connection didn't succeed, return
+  {
+    return;
   }
   Serial.println("");
   Serial.println("WiFi connected.");
